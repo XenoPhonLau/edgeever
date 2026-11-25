@@ -670,6 +670,10 @@ html[data-edgeever-extension-theme] kbd {
   container-type: inline-size;
 }
 
+.edgeever-create-memo-icon {
+  background-image: linear-gradient(135deg, #36d98e, #12c578);
+}
+
 .edgeever-create-memo-split__more-label {
   display: inline;
 }
@@ -2387,8 +2391,7 @@ html[data-edgeever-extension-theme] .edgeever-memo-divider {
   bottom: 100%;
 }
 
-.ProseMirror .edgeever-image-gallery:hover > .edgeever-image-gallery__toolbar,
-.ProseMirror .edgeever-image-gallery:focus-within > .edgeever-image-gallery__toolbar {
+.ProseMirror .edgeever-image-gallery__toolbar[data-visible="true"] {
   visibility: visible;
   pointer-events: auto;
 }

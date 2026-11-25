@@ -750,6 +750,10 @@ export const fr = {
     refresh: "Actualiser",
     refreshTooltip: "Recharger ce tableau",
     refreshError: "Impossible de recharger le tableau",
+    openUrl: "Ouvrir le lien {{url}}",
+    openUrlTooltip: "Ouvrir le lien",
+    editUrl: "Modifier l’URL dans {{name}}",
+    editUrlTooltip: "Modifier l’URL",
     form: {
       title: "Collecte par formulaire",
       description: "Partagez un lien de formulaire à faire remplir. Les envois sont ajoutés comme nouveaux enregistrements du tableau et les participants ne peuvent pas voir les lignes existantes.",
@@ -2352,7 +2356,7 @@ export const fr = {
     desktopUpdateDownloading: "Téléchargement de la mise à jour…",
     desktopUpdateReady: "Mise à jour téléchargée",
     desktopUpdateDownload: "Télécharger la mise à jour",
-    desktopUpdateRestart: "Redémarrer pour mettre à jour",
+    desktopUpdateRestart: "Mettre à jour et relancer l’app",
     desktopUpdateInstalling: "Redémarrage pour installer la mise à jour…",
     desktopUpdateDiagnosticDetails: "Détails de diagnostic",
     desktopUpdateDiagnosticCopied: "Diagnostics copiés",
@@ -2791,6 +2795,7 @@ export const fr = {
     importScreenshotFailed: "Impossible d'enregistrer la capture d'écran comme note. Vérifiez la connexion et réessayez.",
     importWeChatFailedTitle: "Impossible d'enregistrer la discussion WeChat",
     importWeChatUnrecognized: "Cette archive n'est pas une exportation de discussion WeChat.",
+    importWeChatUnsupportedMessages: "WeChat a uniquement exporté des textes de remplacement pour les messages non pris en charge. Si vous avez partagé un groupe de photos, ouvrez-le dans WeChat, enregistrez les photos et ajoutez-les à EdgeEver.",
     importWeChatFailed: "Impossible d'enregistrer la discussion comme note. Réessayez.",
     importWeChatInProgress: "Importation de la discussion WeChat…",
     importWeChatRetryHint: "L'exportation de la discussion est toujours dans Téléchargements. Essayez de la réimporter.",
@@ -3911,6 +3916,10 @@ export const fr = {
       },
       "legacy-custom": {
         label: "Accès personnalisé hérité"
+      },
+      custom: {
+        label: "Accès personnalisé",
+        description: "Accès global complet, restreint aux carnets sélectionnés ci-dessous avec des droits de lecture/écriture par carnet.",
       }
     },
     loadingTokens: "Chargement des jetons...",
@@ -3922,6 +3931,49 @@ export const fr = {
     legacyTokenCannotCopy: "Impossible de copier l'ancien jeton",
     legacyConfigCannotCopy: "Impossible de copier la configuration MCP pour les anciens jetons",
     deleteToken: "Supprimer le jeton",
+    editToken: "Modifier le token",
+    editTokenTitle: "Modifier le token « {{name}} »",
+    notebookAccessTitle: "Accès aux carnets",
+    notebookAccessAll: "Tous les carnets",
+    notebookAccessSelected: "Carnets sélectionnés",
+    notebookAccessHint: "{{count}} carnets autorisés (sous-carnets inclus)",
+    notebookAccessEmpty: "Aucun carnet dans cet espace de travail pour le moment.",
+    notebookAccessAllDescription: "Ce token peut accéder à tous les carnets de l'espace de travail.",
+    notebookAccessSummary: "Carnets : {{notebooks}}",
+    notebookRead: "Lecture",
+    notebookWrite: "Écriture",
+    notebookBulkSelect: "Tout sélectionner",
+    notebookBulkSelectDescription: "Ajouter tous les carnets à la liste blanche.",
+    notebookBulkClear: "Effacer",
+    notebookBulkClearDescription: "Vider la liste blanche (aucun accès).",
+    notebookInherited: "hérité",
+    notebookAccessLevelTitle: "Accès de la liste blanche",
+    notebookAccessLevelDescription: "Un seul niveau s'applique à toute la liste blanche ; les carnets non cochés (y compris nouveaux) sont invisibles.",
+    notebookAccessLevelSummary: "Niveau : {{access}}",
+    notebookAccessLevel: {
+      read: {
+        label: "Lecture seule",
+        description: "Les carnets de la liste blanche sont en lecture seule.",
+      },
+      write: {
+        label: "Lecture/écriture",
+        description: "Les carnets de la liste blanche sont en lecture/écriture.",
+      },
+    },
+    notebookDefaultAccess: {
+      none: {
+        label: "Aucun accès",
+        description: "Les carnets sans autorisation (y compris les nouveaux) sont invisibles et non modifiables.",
+      },
+      read: {
+        label: "Lecture seule",
+        description: "Les carnets sans autorisation (y compris les nouveaux) sont en lecture seule.",
+      },
+      write: {
+        label: "Lecture/écriture",
+        description: "Les carnets sans autorisation (y compris les nouveaux) sont en lecture/écriture.",
+      },
+    },
     description: "Autorisez le Web Clipper, les services MCP et les agents IA à accéder à vos notes.",
     namePlaceholder: "Nom du jeton (par ex. Chrome Clipper ou Claude Desktop)",
     createToken: "Créer un jeton",
@@ -4265,7 +4317,6 @@ export const fr = {
       unsupported: "Mises à jour indisponibles",
       unsupportedHint: "La recherche de mises à jour est disponible dans les builds de production installés, pas dans Expo Go ni les builds de développement.",
       updateWithGooglePlay: "Mettre à jour avec Google Play",
-      whatsNewInVersion: "Nouveautés dans EdgeEver {{version}}",
     },
     workspace: {
       diagramReadOnly: "Diagramme en lecture seule",

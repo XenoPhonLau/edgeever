@@ -95,6 +95,12 @@ import {
   } from "./resource-service";
 import { assertScope, getActorLabel, getAuditActor } from "./request-auth";
 import {
+  assertNotebookAccess,
+  assertMemoNotebookWriteAccess,
+  resolveNotebookAccess,
+  type NotebookAccess,
+} from "./token-notebook-access";
+import {
   createPendingResourceUpload,
   parseResourceIds,
   preparePendingResourceBinding,
@@ -154,6 +160,7 @@ export type McpToolDependencies = {
       dryRun: boolean;
       actor: AuditActor;
       actorLabel: string;
+      notebookAccess?: NotebookAccess;
     },
   ) => Promise<unknown>;
   listMemosForMcp: typeof import("./memo-service").listMemosForMcp;
@@ -270,6 +277,33 @@ export const callMcpTool = async (
     updateMemoRecord,
   } = dependencies;
 
+  // Per-notebook grants resolve once per request; unrestricted requests return
+  // immediately without extra database reads.
+  const notebookAccess: NotebookAccess = auth.kind === "agent"
+    ? await resolveNotebookAccess(c.env.storage.db, auth.workspaceId, auth.notebookAccess, auth.notebookAccessLevel)
+    : { restricted: false, readableNotebookIds: [], writableNotebookIds: [], defaultWrite: true };
+
+  const assertMemoAccess = (memo: { notebookId: string }, kind: "read" | "write", action: string) => {
+    assertNotebookAccess(notebookAccess, kind, memo.notebookId, action);
+  };
+
+  // Note templates and AI instructions are workspace-level resources with no
+  // notebook owner, so a notebook-restricted token must not read or manage
+  // them at all.
+  const assertWorkspaceResourcesAllowed = (resource: string) => {
+    if (notebookAccess.restricted) {
+      throw new AppError(
+        "notebook_access_denied",
+        `This API token is restricted to specific notebooks and cannot access ${resource}. Update the token's notebook access in EdgeEver settings.`,
+        403,
+      );
+    }
+  };
+  const assertTemplatesAllowed = () => assertWorkspaceResourcesAllowed("note templates");
+
+  const assertBulkMemoAccess = (memoIds: string[], deletedState: 0 | 1, action: string) =>
+    assertMemoNotebookWriteAccess(c.env.storage.db, auth.workspaceId, memoIds, notebookAccess, action, deletedState);
+
   switch (name) {
     case "get_current_user": {
       return await getCurrentWorkspaceIdentity(c.env.storage.db, auth);
@@ -290,6 +324,7 @@ export const callMcpTool = async (
           poster: typeof args.poster === "boolean" ? args.poster : null,
           hasResources: typeof args.hasResources === "boolean" ? args.hasResources : null,
           limit: clampNumber(Number(args.limit ?? 20), 1, 50),
+          notebookAccess,
         }),
       };
     }
@@ -305,6 +340,7 @@ export const callMcpTool = async (
         includeContent,
         includeDeleted: args.includeDeleted === true,
         poster: typeof args.poster === "boolean" ? args.poster : null,
+        notebookAccess,
       });
       return includeContent && !includeAllFormats
         ? { ...page, memos: page.memos.map(projectMcpMemo) }
@@ -319,6 +355,7 @@ export const callMcpTool = async (
       if (!memo) {
         throw new Error("Memo not found");
       }
+      assertMemoAccess(memo, "read", "read this memo");
 
       const diagram = parseDiagramDocument(memo.contentMarkdown);
       if (diagram) return { memo: memoWithoutDiagramPayload(memo), diagram: diagramSemanticGraph(diagram) };
@@ -338,6 +375,7 @@ export const callMcpTool = async (
       const memoId = getRequiredString(args.memoId, "memoId");
       const memo = await getTableMemoSource(c.env.storage.db, auth.workspaceId, memoId);
       if (!memo) throw new AppError("not_found", "Memo not found", 404);
+      assertMemoAccess(memo, "read", "read this table");
       const document = parseTableDocument(memo.contentMarkdown);
       if (!document) throw new AppError("not_table", "Memo is not a structured table", 400);
       const recordId = getOptionalString(args.recordId);
@@ -357,6 +395,7 @@ export const callMcpTool = async (
     case "create_table_memo": {
       assertScope(auth, "write:memos");
       const notebookId = getRequiredString(args.notebookId, "notebookId");
+      assertNotebookAccess(notebookAccess, "write", notebookId, "create a table memo");
       const title = getRequiredString(args.title, "title");
       if (title.length > 160) throw new AppError("invalid_params", "title must have at most 160 characters", 400);
       if (!Array.isArray(args.fields) || args.fields.length < 1 || args.fields.length > TABLE_FIELD_LIMIT) {
@@ -383,6 +422,7 @@ export const callMcpTool = async (
       const expectedRevision = requiredTableRevision(args.expectedRevision);
       const memo = await getTableMemoSource(c.env.storage.db, auth.workspaceId, memoId);
       if (!memo) throw new AppError("not_found", "Memo not found", 404);
+      assertMemoAccess(memo, "write", "update this table's schema");
       const document = parseTableDocument(memo.contentMarkdown);
       if (!document) throw new AppError("not_table", "Memo is not a structured table", 400);
       if (memo.revision !== expectedRevision) {
@@ -420,6 +460,7 @@ export const callMcpTool = async (
       const expectedRevision = requiredTableRevision(args.expectedRevision);
       const memo = await getTableMemoSource(c.env.storage.db, auth.workspaceId, memoId);
       if (!memo) throw new AppError("not_found", "Memo not found", 404);
+      assertMemoAccess(memo, "write", "change this table's records");
       const document = parseTableDocument(memo.contentMarkdown);
       if (!document) throw new AppError("not_table", "Memo is not a structured table", 400);
       if (memo.revision !== expectedRevision) {
@@ -462,6 +503,7 @@ export const callMcpTool = async (
     case "create_memo": {
       assertScope(auth, "write:memos");
       const notebookId = getRequiredString(args.notebookId, "notebookId");
+      assertNotebookAccess(notebookAccess, "write", notebookId, "create a memo");
       const actor = getAuditActor(c);
       const actorLabel = getActorLabel(c);
       const resourceIds = parseResourceIds(args.resourceIds) ?? [];
@@ -494,6 +536,7 @@ export const callMcpTool = async (
     case "create_infographic_memo": {
       assertScope(auth, "write:memos");
       const notebookId = getRequiredString(args.notebookId, "notebookId");
+      assertNotebookAccess(notebookAccess, "write", notebookId, "create an infographic memo");
       const template = getRequiredString(args.template, "template");
       const compiled = compileInfographicNote(template, args.data);
       if (!compiled.ok) throw new AppError("invalid_params", compiled.message, 400);
@@ -515,6 +558,7 @@ export const callMcpTool = async (
     case "create_diagram_memo": {
       assertScope(auth, "write:memos");
       const notebookId = getRequiredString(args.notebookId, "notebookId");
+      assertNotebookAccess(notebookAccess, "write", notebookId, "create a diagram memo");
       const ir = parseDiagramMemoIr(args);
       const { compileDiagramIr } = await import("@edgeever/shared/diagram-layout");
       // Generated mind maps and flowcharts start with the editor's default
@@ -541,6 +585,7 @@ export const callMcpTool = async (
     }
     case "create_poster_memo": {
       assertScope(auth, "write:memos");
+      assertNotebookAccess(notebookAccess, "write", getRequiredString(args.notebookId, "notebookId"), "create a poster memo");
       const { args: input, document } = compilePosterMemo(args);
       const memo = await createMemoRecord(c.env.storage.db, auth.workspaceId, {
         notebookId: input.notebookId, title: input.title,
@@ -551,12 +596,20 @@ export const callMcpTool = async (
     case "request_poster_render": {
       assertScope(auth, "write:memos");
       assertScope(auth, "write:resources");
-      return requestPosterRender(c.env.storage.db, auth.workspaceId, getRequiredString(args.memoId, "memoId"), args.expectedRevision as number, getOptionalString(args.templateId) ?? undefined);
+      const renderMemo = await getMemoDetail(c.env.storage.db, auth.workspaceId, getRequiredString(args.memoId, "memoId"));
+      if (!renderMemo) throw new AppError("not_found", "Memo not found", 404);
+      assertMemoAccess(renderMemo, "write", "request a poster render");
+      return requestPosterRender(c.env.storage.db, auth.workspaceId, renderMemo.id, args.expectedRevision as number, getOptionalString(args.templateId) ?? undefined);
     }
     case "get_poster_render_job": {
       assertScope(auth, "read:memos");
       const row = await readPosterRenderJob(c.env.storage.db, auth.workspaceId, getRequiredString(args.jobId, "jobId"));
       if (!row) throw new AppError("not_found", "Render task not found", 404);
+      if (notebookAccess.restricted) {
+        const jobMemo = await getMemoDetail(c.env.storage.db, auth.workspaceId, row.memo_id);
+        if (!jobMemo) throw new AppError("not_found", "Render task not found", 404);
+        assertMemoAccess(jobMemo, "read", "read this render task");
+      }
       return posterRenderJob(row);
     }
     case "get_poster_capabilities": {
@@ -568,6 +621,7 @@ export const callMcpTool = async (
       assertScope(auth, "read:memos");
       const memo = await getMemoDetail(c.env.storage.db, auth.workspaceId, getRequiredString(args.memoId, "memoId"));
       if (!memo) throw new AppError("not_found", "Memo not found", 404);
+      assertMemoAccess(memo, "read", "read this poster");
       const poster = parsePosterDocument(memo.contentMarkdown);
       if (!poster) throw new AppError("not_poster", "Memo is not an editable poster", 400);
       if (name === "export_poster" && args.format === "source") {
@@ -599,6 +653,7 @@ export const callMcpTool = async (
       assertScope(auth, "read:memos");
       const memo = await getMemoDetail(c.env.storage.db, auth.workspaceId, getRequiredString(args.memoId, "memoId"));
       if (!memo) throw new AppError("not_found", "Memo not found", 404);
+      assertMemoAccess(memo, "read", "read this poster");
       const poster = parsePosterDocument(memo.contentMarkdown);
       if (!poster) throw new AppError("not_poster", "Memo is not an editable poster", 400);
       return { memo: { id: memo.id, title: memo.title, notebookId: memo.notebookId, revision: memo.revision }, poster };
@@ -608,6 +663,7 @@ export const callMcpTool = async (
       const memoId = getRequiredString(args.memoId, "memoId");
       const memo = await getMemoDetail(c.env.storage.db, auth.workspaceId, memoId);
       if (!memo) throw new AppError("not_found", "Memo not found", 404);
+      assertMemoAccess(memo, "write", "edit this poster");
       if (memo.revision !== args.expectedRevision) throw new AppError("revision_conflict", "Poster changed. Read it again before editing.", 409);
       const current = parsePosterDocument(memo.contentMarkdown);
       if (!current) throw new AppError("not_poster", "Memo is not an editable poster", 400);
@@ -632,6 +688,7 @@ export const callMcpTool = async (
       const memoId = getRequiredString(args.memoId, "memoId");
       const memo = await getMemoDetail(c.env.storage.db, auth.workspaceId, memoId);
       if (!memo) throw new AppError("not_found", "Memo not found", 404);
+      assertMemoAccess(memo, "read", "read this diagram");
       const document = parseDiagramDocument(memo.contentMarkdown);
       if (!document) throw new AppError("not_diagram", "Memo is not an editable diagram", 400);
       return {
@@ -647,6 +704,7 @@ export const callMcpTool = async (
       }
       const memo = await getMemoDetail(c.env.storage.db, auth.workspaceId, memoId);
       if (!memo) throw new AppError("not_found", "Memo not found", 404);
+      assertMemoAccess(memo, "write", "edit this diagram");
       if (memo.revision !== args.expectedRevision) {
         throw new AppError("revision_conflict", "Diagram was updated elsewhere. Read it again before applying operations.", 409);
       }
@@ -676,6 +734,7 @@ export const callMcpTool = async (
     }
     case "import_memos": {
       assertScope(auth, "write:memos");
+      assertNotebookAccess(notebookAccess, "write", getRequiredString(args.notebookId, "notebookId"), "import memos");
       return await importMemosRecord(c.env.storage.db, auth.workspaceId, {
         source: getRequiredString(args.source, "source"),
         notebookId: getRequiredString(args.notebookId, "notebookId"),
@@ -683,11 +742,20 @@ export const callMcpTool = async (
         dryRun: args.dryRun === true,
         actor: getAuditActor(c),
         actorLabel: getActorLabel(c),
+        notebookAccess,
       });
     }
     case "update_memo": {
       assertScope(auth, "write:memos");
       const memoId = getRequiredString(args.memoId, "memoId");
+      if (notebookAccess.restricted) {
+        const existing = await getMemoDetail(c.env.storage.db, auth.workspaceId, memoId);
+        if (existing) assertMemoAccess(existing, "write", "update this memo");
+        const targetNotebookId = getOptionalString(args.notebookId);
+        if (targetNotebookId) {
+          assertNotebookAccess(notebookAccess, "write", targetNotebookId, "move this memo");
+        }
+      }
       if (args.contentMarkdown !== undefined) {
         const existing = await getMemoDetail(c.env.storage.db, auth.workspaceId, memoId);
         if (existing && parseDiagramDocument(existing.contentMarkdown)) {
@@ -754,6 +822,7 @@ export const callMcpTool = async (
     case "trash_memos": {
       assertScope(auth, "write:memos");
       const memoIds = getRequiredStringArray(args.memoIds, "memoIds");
+      await assertBulkMemoAccess(memoIds, 0, "move these memos to trash");
 
       if (args.dryRun === true) {
         return { dryRun: true, memos: await getMemosForBulkAction(c.env.storage.db, auth.workspaceId, memoIds, 0) };
@@ -765,6 +834,7 @@ export const callMcpTool = async (
     case "restore_memos": {
       assertScope(auth, "write:memos");
       const memoIds = getRequiredStringArray(args.memoIds, "memoIds");
+      await assertBulkMemoAccess(memoIds, 1, "restore these memos");
 
       if (args.dryRun === true) {
         return { dryRun: true, memos: await getMemosForBulkAction(c.env.storage.db, auth.workspaceId, memoIds, 1) };
@@ -781,6 +851,7 @@ export const callMcpTool = async (
       if (!memo) {
         throw new AppError("not_found", "Memo not found", 404);
       }
+      assertMemoAccess(memo, "write", "upload an image to this memo");
 
       const mimeType = getRequiredString(args.mimeType, "mimeType");
       const filename = getOptionalString(args.filename) ?? `image${inferImageExtension("", mimeType)}`;
@@ -804,6 +875,8 @@ export const callMcpTool = async (
       assertScope(auth, "write:memos");
       const notebookId = getRequiredString(args.notebookId, "notebookId");
       const memoIds = getRequiredStringArray(args.memoIds, "memoIds");
+      assertNotebookAccess(notebookAccess, "write", notebookId, "move memos into this notebook");
+      await assertBulkMemoAccess(memoIds, 0, "move these memos");
       const target = await getNotebook(c.env.storage.db, auth.workspaceId, notebookId);
 
       if (!target) {
@@ -830,6 +903,7 @@ export const callMcpTool = async (
         dryRun: args.dryRun === true,
         actor: getAuditActor(c),
         actorLabel: getActorLabel(c),
+        notebookAccess,
       });
     }
     case "remove_tags_from_memos": {
@@ -842,6 +916,7 @@ export const callMcpTool = async (
         dryRun: args.dryRun === true,
         actor: getAuditActor(c),
         actorLabel: getActorLabel(c),
+        notebookAccess,
       });
     }
     case "rename_tag": {
@@ -850,10 +925,10 @@ export const callMcpTool = async (
       const to = getRequiredString(args.to, "to");
 
       if (args.dryRun === true) {
-        return await previewTagRename(c.env.storage.db, auth.workspaceId, from, to);
+        return await previewTagRename(c.env.storage.db, auth.workspaceId, from, to, notebookAccess);
       }
 
-      const updated = await updateTagAcrossMemos(c.env.storage.db, auth.workspaceId, from, to, getAuditActor(c), getActorLabel(c));
+      const updated = await updateTagAcrossMemos(c.env.storage.db, auth.workspaceId, from, to, getAuditActor(c), getActorLabel(c), notebookAccess);
       return { ok: true, updated };
     }
     case "delete_tag": {
@@ -861,22 +936,28 @@ export const callMcpTool = async (
       const tag = getRequiredString(args.tag, "tag");
 
       if (args.dryRun === true) {
-        return await previewTagRename(c.env.storage.db, auth.workspaceId, tag, null);
+        return await previewTagRename(c.env.storage.db, auth.workspaceId, tag, null, notebookAccess);
       }
 
-      const updated = await updateTagAcrossMemos(c.env.storage.db, auth.workspaceId, tag, null, getAuditActor(c), getActorLabel(c));
+      const updated = await updateTagAcrossMemos(c.env.storage.db, auth.workspaceId, tag, null, getAuditActor(c), getActorLabel(c), notebookAccess);
       return { ok: true, updated };
     }
     case "merge_memos": {
       assertScope(auth, "write:memos");
+      const mergeMemoIds = getRequiredStringArray(args.memoIds, "memoIds");
+      const mergeTarget = getOptionalString(args.notebookId);
+      if (mergeTarget) {
+        assertNotebookAccess(notebookAccess, "write", mergeTarget, "merge memos into this notebook");
+      }
+      await assertBulkMemoAccess(mergeMemoIds, 0, "merge these memos");
       const actor = getAuditActor(c);
       const actorLabel = getActorLabel(c);
       const memo = await mergeMemosRecord(
         c.env.storage.db,
         auth.workspaceId,
         {
-          memoIds: getRequiredStringArray(args.memoIds, "memoIds"),
-          notebookId: getOptionalString(args.notebookId) ?? undefined,
+          memoIds: mergeMemoIds,
+          notebookId: mergeTarget ?? undefined,
           title: getOptionalString(args.title) ?? undefined,
         },
         actor,
@@ -893,6 +974,7 @@ export const callMcpTool = async (
       if (!memo) {
         throw new AppError("not_found", "Memo not found", 404);
       }
+      assertMemoAccess(memo, "write", "upload an attachment to this memo");
 
       const filename = getRequiredString(args.filename, "filename");
       const bytes = await decodeBase64Data(getRequiredString(args.dataBase64, "dataBase64"));
@@ -918,20 +1000,26 @@ export const callMcpTool = async (
       if (!memo) {
         throw new AppError("not_found", "Memo not found", 404);
       }
+      assertMemoAccess(memo, "read", "list resources of this memo");
 
       return { resources: await listResourcesForMemo(c.env.storage.db, auth.workspaceId, memoId) };
     }
     case "list_resources": {
       assertScope(auth, "read:resources");
-      return await listResourcesForMcp(c.env.storage.db, auth.workspaceId, clampNumber(Number(args.limit ?? 100), 1, 500));
+      return await listResourcesForMcp(c.env.storage.db, auth.workspaceId, clampNumber(Number(args.limit ?? 100), 1, 500), notebookAccess);
     }
     case "list_memo_revisions": {
       assertScope(auth, "read:memos");
+      const revisionMemoId = getRequiredString(args.memoId, "memoId");
+      // Include trashed memos: the revision service reads them, so the guard
+      // must authorize the same deleted state it will actually serve.
+      const revisionMemo = await getMemoDetail(c.env.storage.db, auth.workspaceId, revisionMemoId, true);
+      if (revisionMemo) assertMemoAccess(revisionMemo, "read", "list revisions of this memo");
       return {
         revisions: await listMemoRevisionsService(
           c.env.storage.db,
           auth.workspaceId,
-          getRequiredString(args.memoId, "memoId"),
+          revisionMemoId,
           clampNumber(Number(args.limit ?? 50), 1, 100),
           getMemoDetail,
         ),
@@ -940,6 +1028,11 @@ export const callMcpTool = async (
     case "restore_memo_revision": {
       assertScope(auth, "write:memos");
       const memoId = getRequiredString(args.memoId, "memoId");
+      // Include trashed memos: restoring a trashed memo's revision is a write
+      // to that memo, so the guard must authorize the trashed state too.
+      const revisionMemo = await getMemoDetail(c.env.storage.db, auth.workspaceId, memoId, true);
+      if (!revisionMemo) throw new AppError("not_found", "Memo not found", 404);
+      assertMemoAccess(revisionMemo, "write", "restore this memo's revision");
       const revisionId = getRequiredString(args.revisionId, "revisionId");
       const revision = await getMemoRevisionRowService(c.env.storage.db, auth.workspaceId, memoId, revisionId);
 
@@ -965,6 +1058,10 @@ export const callMcpTool = async (
     }
     case "move_notebook": {
       assertScope(auth, "write:notebooks");
+      assertNotebookAccess(notebookAccess, "write", getRequiredString(args.notebookId, "notebookId"), "move this notebook");
+      if (args.parentId) {
+        assertNotebookAccess(notebookAccess, "write", getRequiredString(args.parentId, "parentId"), "move a notebook under this parent");
+      }
       const actor = getAuditActor(c);
       const notebook = await updateNotebookRecord(
         c.env.storage.db,
@@ -981,6 +1078,7 @@ export const callMcpTool = async (
     }
     case "delete_notebook": {
       assertScope(auth, "write:notebooks");
+      assertNotebookAccess(notebookAccess, "write", getRequiredString(args.notebookId, "notebookId"), "delete this notebook");
       if (Object.keys(args).some((key) => key !== "notebookId" && key !== "dryRun")) {
         throw new AppError("invalid_params", "Only notebookId and dryRun are supported; recursive note deletion is not available", 400);
       }
@@ -995,6 +1093,18 @@ export const callMcpTool = async (
       assertScope(auth, "write:notebooks");
       const actor = getAuditActor(c);
       const name = getRequiredString(args.name, "name");
+
+      if (args.parentId) {
+        assertNotebookAccess(notebookAccess, "write", getRequiredString(args.parentId, "parentId"), "create a notebook under this parent");
+      } else if (notebookAccess.restricted) {
+        // Whitelist boundary: a restricted token cannot create top-level
+        // notebooks (it could not access them afterwards anyway).
+        throw new AppError(
+          "notebook_access_denied",
+          "This API token is restricted to specific notebooks and cannot create top-level notebooks. Update the token's notebook access in EdgeEver settings.",
+          403,
+        );
+      }
 
       if (name.length > 80) {
         throw new AppError("invalid_params", "name must be at most 80 characters", 400);
@@ -1015,6 +1125,7 @@ export const callMcpTool = async (
     }
     case "rename_notebook": {
       assertScope(auth, "write:notebooks");
+      assertNotebookAccess(notebookAccess, "write", getRequiredString(args.notebookId, "notebookId"), "rename this notebook");
       const name = getRequiredString(args.name, "name");
 
       if (name.length > 80) {
@@ -1033,7 +1144,7 @@ export const callMcpTool = async (
     }
     case "get_notebook": {
       assertScope(auth, "read:notebooks");
-      const notebook = await getNotebook(c.env.storage.db, auth.workspaceId, getRequiredString(args.notebookId, "notebookId"));
+      const notebook = await getNotebook(c.env.storage.db, auth.workspaceId, getRequiredString(args.notebookId, "notebookId"), notebookAccess);
       if (!notebook) {
         throw new AppError("not_found", "Notebook not found in the authenticated user's workspace.", 404);
       }
@@ -1051,31 +1162,34 @@ export const callMcpTool = async (
             : undefined,
           exact: args.exact === true,
           limit: clampNumber(Number(args.limit ?? 20), 1, 50),
+          notebookAccess,
         }),
       };
     }
     case "resolve_notebook_path": {
       assertScope(auth, "read:notebooks");
-      return await resolveNotebookPath(c.env.storage.db, auth.workspaceId, getRequiredString(args.path, "path"));
+      return await resolveNotebookPath(c.env.storage.db, auth.workspaceId, getRequiredString(args.path, "path"), notebookAccess);
     }
     case "list_notebooks": {
       assertScope(auth, "read:notebooks");
-      return { notebooks: await listNotebooks(c.env.storage.db, auth.workspaceId) };
+      return { notebooks: await listNotebooks(c.env.storage.db, auth.workspaceId, notebookAccess) };
     }
     case "list_tags": {
       assertScope(auth, "read:tags");
-      return { tags: await listTagSummaries(c.env.storage.db, auth.workspaceId) };
+      return { tags: await listTagSummaries(c.env.storage.db, auth.workspaceId, notebookAccess) };
     }
     case "get_workspace_stats": {
       assertScope(auth, "read:memos");
-      return await getWorkspaceStats(c.env.storage.db, auth.workspaceId);
+      return await getWorkspaceStats(c.env.storage.db, auth.workspaceId, notebookAccess);
     }
     case "list_note_templates": {
       assertScope(auth, "read:memos");
+      assertTemplatesAllowed();
       return { templates: await listMemoTemplates(c.env.storage.db, auth.workspaceId) };
     }
     case "get_note_template": {
       assertScope(auth, "read:memos");
+      assertTemplatesAllowed();
       const template = await getMemoTemplate(
         c.env.storage.db,
         auth.workspaceId,
@@ -1086,12 +1200,14 @@ export const callMcpTool = async (
     }
     case "create_note_template": {
       assertScope(auth, "write:memos");
+      assertTemplatesAllowed();
       assertMcpMutationAllowed(c.env);
       const input = parseMcpInput(TemplateCreateSchema, args);
       const memo = input.memoId
         ? await getMemoDetail(c.env.storage.db, auth.workspaceId, input.memoId)
         : null;
       if (input.memoId && !memo) throw new AppError("not_found", "Memo not found", 404);
+      if (memo) assertMemoAccess(memo, "read", "create a template from this memo");
 
       const id = createId("template");
       const now = isoNow();
@@ -1123,6 +1239,7 @@ export const callMcpTool = async (
     }
     case "update_note_template": {
       assertScope(auth, "write:memos");
+      assertTemplatesAllowed();
       assertMcpMutationAllowed(c.env);
       const templateId = getRequiredString(args.templateId, "templateId");
       const input = parseMcpInput(TemplateUpdateSchema, args);
@@ -1158,6 +1275,7 @@ export const callMcpTool = async (
     }
     case "delete_note_template": {
       assertScope(auth, "write:memos");
+      assertTemplatesAllowed();
       assertMcpMutationAllowed(c.env);
       const templateId = getRequiredString(args.templateId, "templateId");
       const current = await getMemoTemplate(c.env.storage.db, auth.workspaceId, templateId);
@@ -1171,7 +1289,9 @@ export const callMcpTool = async (
     }
     case "use_note_template": {
       assertScope(auth, "write:memos");
+      assertTemplatesAllowed();
       assertMcpMutationAllowed(c.env);
+      assertNotebookAccess(notebookAccess, "write", getRequiredString(args.notebookId, "notebookId"), "create a memo from this template");
       const templateId = getRequiredString(args.templateId, "templateId");
       const template = await getMemoTemplate(c.env.storage.db, auth.workspaceId, templateId);
       if (!template) throw new AppError("not_found", "Template not found", 404);
@@ -1187,6 +1307,7 @@ export const callMcpTool = async (
     }
     case "list_ai_instructions": {
       assertScope(auth, "read:memos");
+      assertWorkspaceResourcesAllowed("AI instructions");
       return {
         instructions: await listAiPromptTemplates(
           c.env.storage.db,
@@ -1197,6 +1318,7 @@ export const callMcpTool = async (
     }
     case "get_ai_instruction": {
       assertScope(auth, "read:memos");
+      assertWorkspaceResourcesAllowed("AI instructions");
       const row = await getAiPromptTemplateRow(
         c.env.storage.db,
         auth.workspaceId,
@@ -1207,6 +1329,7 @@ export const callMcpTool = async (
     }
     case "create_ai_instruction": {
       assertScope(auth, "write:memos");
+      assertWorkspaceResourcesAllowed("AI instructions");
       assertMcpMutationAllowed(c.env);
       const input = parseMcpInput(AiPromptTemplateCreateSchema, args);
       const id = createId("aiprompt");
@@ -1238,6 +1361,7 @@ export const callMcpTool = async (
     }
     case "update_ai_instruction": {
       assertScope(auth, "write:memos");
+      assertWorkspaceResourcesAllowed("AI instructions");
       assertMcpMutationAllowed(c.env);
       const instructionId = getRequiredString(args.instructionId, "instructionId");
       const input = parseMcpInput(AiPromptTemplateUpdateSchema, args);
@@ -1274,6 +1398,7 @@ export const callMcpTool = async (
     }
     case "delete_ai_instruction": {
       assertScope(auth, "write:memos");
+      assertWorkspaceResourcesAllowed("AI instructions");
       assertMcpMutationAllowed(c.env);
       const instructionId = getRequiredString(args.instructionId, "instructionId");
       const current = await getAiPromptTemplateRow(c.env.storage.db, auth.workspaceId, instructionId);
@@ -1289,6 +1414,7 @@ export const callMcpTool = async (
     }
     case "restore_default_ai_instructions": {
       assertScope(auth, "write:memos");
+      assertWorkspaceResourcesAllowed("AI instructions");
       assertMcpMutationAllowed(c.env);
       const result = await restoreMissingDefaultAiPrompts(c.env.storage.db, auth.workspaceId);
       if (result.restoredCount > 0) {

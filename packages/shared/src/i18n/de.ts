@@ -750,6 +750,10 @@ export const de = {
     "refresh": "Aktualisieren",
     "refreshTooltip": "Diese Tabelle neu laden",
     "refreshError": "Tabelle konnte nicht neu geladen werden",
+    "openUrl": "Link öffnen {{url}}",
+    "openUrlTooltip": "Link öffnen",
+    "editUrl": "URL in {{name}} bearbeiten",
+    "editUrlTooltip": "URL bearbeiten",
     "form": {
       "title": "Formularerfassung",
       "description": "Teile einen Formularlink, den andere ausfüllen können. Einsendungen werden als neue Tabellenzeilen hinzugefügt. Teilnehmende können bestehende Zeilen nicht einsehen.",
@@ -2352,7 +2356,7 @@ export const de = {
     "desktopUpdateDownloading": "Update wird heruntergeladen …",
     "desktopUpdateReady": "Update heruntergeladen",
     "desktopUpdateDownload": "Update herunterladen",
-    "desktopUpdateRestart": "Neu starten zum Aktualisieren",
+    "desktopUpdateRestart": "App aktualisieren und neu starten",
     "desktopUpdateInstalling": "Neustart zur Installation des Updates …",
     "desktopUpdateDiagnosticDetails": "Diagnosedetails",
     "desktopUpdateDiagnosticCopied": "Diagnosedaten kopiert",
@@ -2791,6 +2795,7 @@ export const de = {
     "importScreenshotFailed": "Der Screenshot konnte nicht als Notiz gespeichert werden. Verbindung prüfen und erneut versuchen.",
     "importWeChatFailedTitle": "WeChat-Chat konnte nicht gespeichert werden",
     "importWeChatUnrecognized": "Dieses Archiv ist kein WeChat-Chat-Export.",
+    "importWeChatUnsupportedMessages": "WeChat hat nur Platzhalter für nicht unterstützte Nachrichten exportiert. Wenn du eine Fotosammlung geteilt hast, öffne sie in WeChat, speichere die Fotos und füge sie zu EdgeEver hinzu.",
     "importWeChatFailed": "Der Chat konnte nicht als Notiz gespeichert werden. Versuchen Sie es erneut.",
     "importWeChatInProgress": "WeChat-Chat wird importiert…",
     "importWeChatRetryHint": "Der Chat-Export befindet sich noch in „Downloads“. Versuchen Sie erneut, ihn zu importieren.",
@@ -3912,6 +3917,11 @@ export const de = {
       "legacy-custom": {
         "label": "Benutzerdefinierter Alt-Zugriff"
       }
+,
+      "custom": {
+        "label": "Benutzerdefinierter Zugriff",
+        "description": "Vollzugriff global, beschränkt auf die unten ausgewählten Notizbücher mit individuellen Lese-/Schreibberechtigungen pro Notizbuch."
+      }
     },
     "loadingTokens": "Tokens werden geladen...",
     "emptyTokens": "Keine API-Tokens",
@@ -3922,6 +3932,51 @@ export const de = {
     "legacyTokenCannotCopy": "Altes Token kann nicht kopiert werden",
     "legacyConfigCannotCopy": "MCP-Konfiguration kann für alte Tokens nicht kopiert werden",
     "deleteToken": "Token löschen",
+    "editToken": "Token bearbeiten",
+    "editTokenTitle": "Token „{{name}}“ bearbeiten",
+    "notebookAccessTitle": "Notizbuchzugriff",
+    "notebookAccessAll": "Alle Notizbücher",
+    "notebookAccessSelected": "Ausgewählte Notizbücher",
+    "notebookAccessHint": "{{count}} Notizbücher freigegeben (inkl. Unternotizbücher)",
+    "notebookAccessEmpty": "Noch keine Notizbücher in diesem Arbeitsbereich.",
+    "notebookAccessAllDescription": "Dieser Token kann auf alle Notizbücher im Arbeitsbereich zugreifen.",
+    "notebookAccessSummary": "Notizbücher: {{notebooks}}",
+    "notebookRead": "Lesen",
+    "notebookWrite": "Schreiben",
+    "notebookBulkSelect": "Alle auswählen",
+    "notebookBulkSelectDescription": "Alle Notizbücher auf die Whitelist setzen.",
+    "notebookBulkClear": "Leeren",
+    "notebookBulkClearDescription": "Whitelist leeren (kein Zugriff).",
+    "notebookInherited": "geerbt",
+    "notebookAccessLevelTitle": "Whitelist-Zugriff",
+    "notebookAccessLevelDescription": "Ein Level gilt für die gesamte Whitelist; nicht angehakte Notizbücher (auch neue) sind unsichtbar.",
+    "notebookAccessLevelSummary": "Level: {{access}}",
+    "notebookAccessLevel": {
+      "read": {
+        "label": "Nur lesen",
+        "description": "Whitelist-Notizbücher sind nur lesbar."
+      },
+
+      "write": {
+        "label": "Lesen/Schreiben",
+        "description": "Whitelist-Notizbücher sind les- und schreibbar."
+      }
+
+    },
+    "notebookDefaultAccess": {
+      "none": {
+        "label": "Kein Zugriff",
+        "description": "Notizbücher ohne Freigabe (inkl. neuer) sind unsichtbar und nicht bearbeitbar."
+      },
+      "read": {
+        "label": "Nur lesen",
+        "description": "Notizbücher ohne Freigabe (inkl. neuer) sind nur lesbar."
+      },
+      "write": {
+        "label": "Lesen/Schreiben",
+        "description": "Notizbücher ohne Freigabe (inkl. neuer) sind les- und schreibbar."
+      }
+    },
     "description": "Autorisieren Sie Web Clipper, MCP-Dienste und KI-Agenten für den Zugriff auf Ihre Notizen.",
     "namePlaceholder": "Token-Name (z. B. Chrome Clipper oder Claude Desktop)",
     "createToken": "Token erstellen",
@@ -4265,7 +4320,6 @@ export const de = {
       "unsupported": "Updates nicht verfügbar",
       "unsupportedHint": "Update-Prüfungen sind in installierten Release-Builds verfügbar, nicht in Expo Go oder Entwicklungs-Builds.",
       "updateWithGooglePlay": "Mit Google Play aktualisieren",
-      "whatsNewInVersion": "Neu in EdgeEver {{version}}",
     },
     "workspace": {
       "diagramReadOnly": "Schreibgeschütztes Diagramm",
